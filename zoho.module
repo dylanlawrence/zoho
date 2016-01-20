@@ -1,0 +1,25 @@
+<?php
+
+/**
+ * @file
+ * Contains zoho.module..
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function zoho_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the zoho module.
+    case 'help.page.zoho':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('The module is rewritten as per the updated zoho api implementation.') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
