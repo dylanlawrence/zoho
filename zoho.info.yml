@@ -4,4 +4,4 @@ description: The module is rewritten as per the updated zoho api implementation.
 core: 8.x
 package: CRM
 dependencies:
-  - webform
+  - contact
