@@ -1,0 +1,11 @@
+
+zoho.zoho_config_form:
+  path: '/admin/config/zoho/zohoconfig'
+  defaults:
+    _form: '\Drupal\zoho\Form\ZohoConfigForm'
+    _title: 'ZohoConfigForm'
+  requirements:
+    _permission: 'access administration pages'
+  options:
+    _admin_route: TRUE
+
