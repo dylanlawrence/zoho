@@ -1,10 +1,12 @@
 <?php
 
+define('ZOHO_URL', 'http://crm.zoho.com/crm/private/xml/');
+define('ZOHO_TICKET_URL', 'https://accounts.zoho.com/');
+
 /**
  * @file
  * Contains zoho.module..
  */
-
 use Drupal\Core\Routing\RouteMatchInterface;
 
 /**
@@ -23,3 +25,147 @@ function zoho_help($route_name, RouteMatchInterface $route_match) {
   }
 }
 
+/**
+ * Sending data to zoho crm.
+ *
+ * @param string $type
+ *   Type of records to be added. e.g,'Leads'
+ * @param string $xml
+ *   The xml data to be stored in zoho crm.
+ * @param string $update_id
+ *   Optional-the Id of the record to be updated.
+ *   If specified Updates the data already present in crm.
+ *
+ * @returns object
+ *   Returns an object with following keys:
+ *   success contains TRUE if succesfull else FALSE.
+ *   error contains error code if the request was not successful.
+ *   message contains success message or error message.
+ *   records contain an array with details of the inserted records.
+ */
+function zoho_post_records($type, $xml, $update_id = NULL) {
+  $result = (object) array();
+  $ticket = variable_get('zoho_api_authtoken', FALSE);
+  if (!$ticket) {
+    $link = l(t('Zoho Configurations'), 'admin/config/services/zoho');
+    watchdog('zoho', 'Zoho CRM Authtoken should be configured at admin > config > services > zoho', array(), WATCHDOG_ERROR, $link);
+    $result->success = FALSE;
+    $result->message = 'Zoho API is not configured.';
+    return $result;
+  }
+  if (isset($update_id)) {
+    $url = ZOHO_URL . $type . "/updateRecords?id=" . trim($update_id) . "&authtoken=" . trim($ticket) . "&scope=crmapi" . "&newFormat=1";
+  }
+  else {
+    $url = ZOHO_URL . $type . "/insertRecords?authtoken=" . trim($ticket) . "&scope=crmapi" . "&newFormat=1";
+  }
+  $response = drupal_http_request($url, array(
+    'method' => 'POST',
+    'data' => $xml,
+    'headers' => array('Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8'),
+      )
+  );
+  if ($response->code == 200) {
+    $xml = simplexml_load_string($response->data, 'SimpleXMLElement', LIBXML_NOCDATA);
+    if (isset($xml->result)) {
+      $result->success = TRUE;
+      $result->message = (string) $xml->result->message;
+      $record_details = array();
+      foreach ($xml->result->recorddetail->FL as $fl) {
+        $key = (string) $fl['val'];
+        $record_details[$key] = (string) $fl;
+      }
+      $result->records = $record_details;
+    }
+    elseif (isset($xml->error)) {
+      $result->success = FALSE;
+      $result->message = (string) $xml->error->message;
+      $result->error = (string) $xml->error->code;
+    }
+  }
+  else {
+    $result->success = FALSE;
+    $result->error = $response->code;
+    $result->message = $response->error;
+  }
+  return $result;
+}
+
+/**
+ * Getting data from zoho crm.
+ *
+ * @param string $search_condition
+ *   Search condition based on which records will be fetched.
+ *   e.g,'(Email|=|xyz@xyz.com)'
+ * @param string $type
+ *   Type of records to be fetched. e.g,'Leads'
+ * @param string $select_columns
+ *   Columns of the records to be fetched.
+ *   e.g, 'Leads(First Name,Last Name,Email)'
+ *
+ * @returns object
+ *   Returns an object with following keys:
+ *   success will contain TRUE if the request is succesfull else FALSE.
+ *   error will contain error code if the request was not successful.
+ *   message will contain success message or error message.
+ *   records will contain an associated array of records with data
+ *   if the request is successful.
+ */
+function zoho_get_records($search_condition, $type = 'Leads', $select_columns = 'All') {
+  $result = (object) array();
+  $ticket = variable_get('zoho_api_authtoken', FALSE);
+  if (!$ticket) {
+    $link = l(t('Zoho Configurations'), 'admin/config/services/zoho');
+    watchdog('zoho', 'Zoho CRM Authtoken should be configured at admin > config > services > zoho', array(), WATCHDOG_ERROR, $link);
+    $result->success = FALSE;
+    $result->message = 'Zoho API is not configured.';
+    return $result;
+  }
+  $params = '&scope=crmapi&selectColumns=' . urlencode($select_columns) . '&searchCondition=' . urlencode($search_condition);
+  $url = ZOHO_URL . $type . "/getSearchRecords?authtoken=" . trim($ticket) . $params;
+  $response = drupal_http_request($url);
+  if ($response->code == 200) {
+    $xml = simplexml_load_string($response->data, 'SimpleXMLElement', LIBXML_NOCDATA);
+    if (isset($xml->result)) {
+      $result->success = TRUE;
+      $result->message = (string) $xml->result->message;
+      $result->records = zoho_parse_records($xml, $type);
+    }
+    elseif (isset($xml->error)) {
+      $result->success = FALSE;
+      $result->message = (string) $xml->error->message;
+      $result->error = (string) $xml->error->code;
+    }
+  }
+  else {
+    $result->success = FALSE;
+    $result->error = $response->code;
+    $result->message = $response->error;
+  }
+  return $result;
+}
+
+/**
+ * Parse xml object into an array.
+ *
+ * @param object $xml
+ *   An object of type simplexmlelement returned by simplexml_load_string().
+ * @param string $type
+ *   Type of records being fetched. e.g,'Leads'
+ *
+ * @returns array
+ *   An associated array of records with fiekds and values.
+ *   $records[row value][field value]
+ */
+function zoho_parse_records($xml, $type) {
+  $numberofrecords = count($xml->result->$type->row);
+  $records = array();
+  for ($i = 0; $i < $numberofrecords; $i++) {
+    $numberofvalues = count($xml->result->$type->row[$i]->FL);
+    for ($j = 0; $j < $numberofvalues; $j++) {
+      $field = (string) $xml->result->$type->row[$i]->FL[$j]['val'];
+      $records[$i][$field] = (string) $xml->result->$type->row[$i]->FL[$j];
+    }
+  }
+  return $records;
+}
